@@ -1,75 +1,86 @@
 import requests
 import logging
-from telegram import Bot
-from telegram.ext import Application, ApplicationBuilder
+import asyncio
+import telegram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
+from datetime import datetime, timedelta
+import jdatetime
 
-# تنظیمات لاگینگ
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
-# توکن بات تلگرام
-TELEGRAM_TOKEN = '7199265167:AAHRWNMZzvQaDTcHiee6lAjuqBTiQL2DIgk'
-CHANNEL_ID = '@ir_tehran_weather'
+# تنظیمات
+TEHRAN_CITY_ID = "112931"  # شناسه شهر تهران
+QOM_CITY_ID = "119208"  # شناسه شهر قم
+MASHHAD_CITY_ID = "124665"
+TEHRAN_CHANNEL_ID = "@ir_tehran_weather"  # کانال تلگرامی آب و هوای تهران
+QOM_CHANNEL_ID = "@ir_qom_weather"  # کانال تلگرامی آب و هوای 
+MASHHAD_CHANNEL_ID = "@ir_mashhad_weather"
+WEATHER_API_KEY = "c98eb50389c22cd88756d85efb8b4df1"
 
-# API Key از OpenWeatherMap
-WEATHER_API_KEY = 'c98eb50389c22cd88756d85efb8b4df1'
-CITY_ID = '112931'  # ID شهر تهران در OpenWeatherMap
-
-# تابع برای تنظیم درخواست با Retry و Timeout
-def requests_session():
-    session = requests.Session()
-    retry = Retry(
-        total=5,
-        backoff_factor=0.1,
-        status_forcelist=[500, 502, 503, 504]
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
-
-# تابع برای دریافت اطلاعات آب و هوا
-def get_weather():
-    session = requests_session()
-    url = f"http://api.openweathermap.org/data/2.5/weather?id={CITY_ID}&appid={WEATHER_API_KEY}&units=metric&lang=fa"
+def get_weather(city_id):
+    session = requests.session()
+    url = f"http://api.openweathermap.org/data/2.5/weather?id={city_id}&appid={WEATHER_API_KEY}&units=metric&lang=fa"
     response = session.get(url)
     data = response.json()
-    
+
     if response.status_code == 200:
+        utc_time = datetime.utcfromtimestamp(data['dt'])
+        city = data['name']
         weather = data['weather'][0]['description']
         temp = data['main']['temp']
         humidity = data['main']['humidity']
-        message = f"آب و هوای تهران:\n\nوضعیت: {weather}\nدما: {temp}°C\nرطوبت: {humidity}%"
+        wind_speed = data['wind']['speed']
+        cloud_all = data['clouds']['all']
+        visibility = data['visibility']
+
+        now = jdatetime.datetime.now()
+        time = f"{now.strftime('%Y/%m/%d    %H:%M:%S')}"
+        if city == 'تهران':
+            x = 'tehran'
+        elif city == 'قم':
+            x = 'qom'
+        else:
+            x = 'mashhad'
+        message = (
+            f"آب و هوای {city}:\n\nوضعیت: {weather}\nدما: {temp} درجه سانتیگراد\nرطوبت: %{humidity}\nسرعت وزش باد: {wind_speed}m/s \nمیزان ابر: %{cloud_all} \nمیزان دید: {visibility} متر\n\n{time}\n@ir_{x}_weather"
+        )
         return message
     else:
-        logging.error(f"خطا در دریافت اطلاعات آب و هوا: {response.status_code} - {response.text}")
+        logging.error(
+            f"خطا در دریافت اطلاعات آب و هوا: {response.status_code} - {response.text}"
+        )
         return "خطا در دریافت اطلاعات آب و هوا."
 
-# تابع برای ارسال پیام به کانال تلگرام
-async def send_weather(application):
-    message = get_weather()
+async def send_weather(city_id, channel_id):
+    message = get_weather(city_id)
+    bot = telegram.Bot(token="7199265167:AAHRWNMZzvQaDTcHiee6lAjuqBTiQL2DIgk")  # توکن ربات تلگرام خود را وارد کنید
     try:
-        await application.bot.send_message(chat_id=CHANNEL_ID, text=message)
+        await bot.send_message(chat_id=channel_id, text=message)
+        logging.info(f"Your Message Sent To Channel {channel_id}")
     except Exception as e:
-        logging.error(f"خطا در ارسال پیام به تلگرام: {e}")
+        logging.error(f"Unexpected Error On send_weather: {e}")
 
-# راه‌اندازی ربات تلگرام
-async def main():
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+def main():
     scheduler = AsyncIOScheduler()
+    scheduler2 = AsyncIOScheduler()
+    scheduler3 = AsyncIOScheduler()
+    # ارسال آب و هوای تهران به کانال مربوطه
+    scheduler.add_job(send_weather, "interval", seconds=3600, args=[TEHRAN_CITY_ID, TEHRAN_CHANNEL_ID])
+    # ارسال آب و هوای قم به کانال مربوطه
+    scheduler2.add_job(send_weather, "interval", seconds=3600, args=[QOM_CITY_ID, QOM_CHANNEL_ID])
 
-    # ارسال اطلاعات آب و هوا هر دو ساعت یک بار
-    scheduler.add_job(send_weather, 'interval', hours=2, args=[application])
+    scheduler3.add_job(send_weather, "interval", seconds=3600, args=[MASHHAD_CITY_ID, MASHHAD_CHANNEL_ID])
+
     scheduler.start()
+    scheduler2.start()
+    scheduler3.start()
 
-    # شروع ربات
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    await application.updater.idle()
+    try:
+        asyncio.get_event_loop().run_forever()
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+if __name__ == "__main__":
+    main()
