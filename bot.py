@@ -3,30 +3,33 @@ import logging
 import asyncio
 import telegram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime, timedelta
+from datetime import datetime
 import jdatetime
+import pytz
+
+def get_iran_time():
+    iran_tz = pytz.timezone('Asia/Tehran')
+    iran_now = datetime.now(iran_tz)
+    iran_jdate = jdatetime.datetime.fromgregorian(datetime=iran_now)
+    iran_time_str = iran_jdate.strftime('%Y/%m/%d   -   %H:%M:%S')
+    return '⏱️ ' + iran_time_str
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# تنظیمات
-TEHRAN_CITY_ID = "112931"  # شناسه شهر تهران
-QOM_CITY_ID = "119208"  # شناسه شهر قم
-MASHHAD_CITY_ID = "124665"
-TEHRAN_CHANNEL_ID = "@ir_tehran_weather"  # کانال تلگرامی آب و هوای تهران
-QOM_CHANNEL_ID = "@ir_qom_weather"  # کانال تلگرامی آب و هوای 
-MASHHAD_CHANNEL_ID = "@ir_mashhad_weather"
+CHANNEL_ID = "@ir_tehran_weather"
 WEATHER_API_KEY = "c98eb50389c22cd88756d85efb8b4df1"
+CITY_ID = "112931"
 
-def get_weather(city_id):
+
+def get_weather():
     session = requests.session()
-    url = f"http://api.openweathermap.org/data/2.5/weather?id={city_id}&appid={WEATHER_API_KEY}&units=metric&lang=fa"
+    url = f"http://api.openweathermap.org/data/2.5/weather?id={CITY_ID}&appid={WEATHER_API_KEY}&units=metric&lang=fa"
     response = session.get(url)
     data = response.json()
 
     if response.status_code == 200:
-        utc_time = datetime.utcfromtimestamp(data['dt'])
         city = data['name']
         weather = data['weather'][0]['description']
         temp = data['main']['temp']
@@ -35,16 +38,10 @@ def get_weather(city_id):
         cloud_all = data['clouds']['all']
         visibility = data['visibility']
 
-        now = jdatetime.datetime.now()
-        time = f"{now.strftime('%Y/%m/%d    %H:%M:%S')}"
         if city == 'تهران':
             x = 'tehran'
-        elif city == 'قم':
-            x = 'qom'
-        else:
-            x = 'mashhad'
         message = (
-            f"آب و هوای {city}:\n\nوضعیت: {weather}\nدما: {temp} درجه سانتیگراد\nرطوبت: %{humidity}\nسرعت وزش باد: {wind_speed}m/s \nمیزان ابر: %{cloud_all} \nمیزان دید: {visibility} متر\n\n{time}\n@ir_{x}_weather"
+            f"آب و هوای {city}:\n\nوضعیت: {weather}\nدما: {temp} درجه سانتیگراد\nرطوبت: %{humidity}\nسرعت وزش باد: {wind_speed}m/s \nمیزان ابر: %{cloud_all} \nمیدان دید: {visibility} متر\n\n{get_iran_time()}\n🌥️ @ir_{x}_weather"
         )
         return message
     else:
@@ -53,29 +50,21 @@ def get_weather(city_id):
         )
         return "خطا در دریافت اطلاعات آب و هوا."
 
-async def send_weather(city_id, channel_id):
-    message = get_weather(city_id)
-    bot = telegram.Bot(token="7199265167:AAHRWNMZzvQaDTcHiee6lAjuqBTiQL2DIgk")  # توکن ربات تلگرام خود را وارد کنید
+# تابع برای ارسال پیام به کانال تلگرام
+async def send_weather():
+    message = get_weather()
+    bot = telegram.Bot(token="7199265167:AAHRWNMZzvQaDTcHiee6lAjuqBTiQL2DIgk")
     try:
-        await bot.send_message(chat_id=channel_id, text=message)
-        logging.info(f"Your Message Sent To Channel {channel_id}")
+        await bot.send_message(chat_id=CHANNEL_ID, text=message)
+        logging.info("Your Message Send To Channel")
     except Exception as e:
-        logging.error(f"Unexpected Error On send_weather: {e}")
+        logging.error(f"Unxpected Error On Send_weather: {e}")
 
 def main():
     scheduler = AsyncIOScheduler()
-    scheduler2 = AsyncIOScheduler()
-    scheduler3 = AsyncIOScheduler()
-    # ارسال آب و هوای تهران به کانال مربوطه
-    scheduler.add_job(send_weather, "interval", seconds=3600, args=[TEHRAN_CITY_ID, TEHRAN_CHANNEL_ID])
-    # ارسال آب و هوای قم به کانال مربوطه
-    scheduler2.add_job(send_weather, "interval", seconds=3600, args=[QOM_CITY_ID, QOM_CHANNEL_ID])
 
-    scheduler3.add_job(send_weather, "interval", seconds=3600, args=[MASHHAD_CITY_ID, MASHHAD_CHANNEL_ID])
-
+    scheduler.add_job(send_weather, "interval", seconds=3600)
     scheduler.start()
-    scheduler2.start()
-    scheduler3.start()
 
     try:
         asyncio.get_event_loop().run_forever()
