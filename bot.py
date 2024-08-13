@@ -14,9 +14,14 @@ def get_iran_time():
     iran_time_str = iran_jdate.strftime('%Y/%m/%d   -   %H:%M:%S')
     return '⏱️ ' + iran_time_str
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+
+
+
+
+
+
+
+
 
 CHANNEL_ID = "@ir_tehran_weather"
 WEATHER_API_KEY = "c98eb50389c22cd88756d85efb8b4df1"
@@ -24,24 +29,54 @@ CITY_ID = "112931"
 
 
 def get_weather():
-    session = requests.session()
-    url = f"http://api.openweathermap.org/data/2.5/weather?id={CITY_ID}&appid={WEATHER_API_KEY}&units=metric&lang=fa"
-    response = session.get(url)
+    # API Key خود را اینجا وارد کنید
+    api_key = "b8a51132a36f4636911101626241208"
+    city = "Tehran"
+    days = 2  # تعداد روزهایی که می‌خواهید پیش‌بینی شود
+    url = f"http://api.weatherapi.com/v1/forecast.json?key={api_key}&q={city}&days={days}&lang=fa"
+
+    response = requests.get(url)
     data = response.json()
 
-    if response.status_code == 200:
-        city = data['name']
-        weather = data['weather'][0]['description']
-        temp = data['main']['temp']
-        humidity = data['main']['humidity']
-        wind_speed = data['wind']['speed']
-        cloud_all = data['clouds']['all']
-        visibility = data['visibility']
+    # دیکشنری برای ترجمه کلمات انگلیسی به فارسی
+    translation_dict = {
+        "Sunny": "آفتابی",
+        "Patchy rain nearby": "باران پراکنده در نزدیکی",
+        "Clear": "صاف",
+        "Cloudy": "ابری",
+        "Overcast": "ابری کامل",
+        "Rain": "باران",
+        "Thunderstorm": "طوفان رعد و برق",
+        "Partly cloudy": "نیمه ابری",
+    }
 
-        if city == 'تهران':
-            x = 'tehran'
+    # دیکشنری برای نام‌گذاری روزها
+    days_naming = {
+        1: "فردا",
+        2: "پس‌ فردا",
+    }
+
+    if "error" not in data:
+        current = data["current"]
+        forecast = data["forecast"]["forecastday"]
+
+        conditions = "\n".join(
+            [
+                f"{days_naming[i+1]} - دمای متوسط: {day['day']['avgtemp_c']} درجه سانتی‌گراد - وضعیت هوا: {translation_dict.get(day['day']['condition']['text'], day['day']['condition']['text'])}"
+                for i, day in enumerate(forecast)
+            ]
+        )
+
+        output = (
+            f"دمای فعلی: {current['temp_c']} درجه سانتی‌گراد\n"
+            f"وضعیت هوا: {translation_dict.get(current['condition']['text'], current['condition']['text'])}\n"
+            f"رطوبت: {current['humidity']}%\n"
+            f"سرعت باد: {current['wind_kph']} کیلومتر بر ساعت\n\n"
+            f"پیش‌بینی:\n{conditions}"
+        )
+
         message = (
-            f"آب و هوای {city}:\n\nوضعیت: {weather}\nدما: {temp} درجه سانتیگراد\nرطوبت: %{humidity}\nسرعت وزش باد: {wind_speed}m/s \nمیزان ابر: %{cloud_all} \nمیدان دید: {visibility} متر\n\n{get_iran_time()}\n🌥️ @ir_{x}_weather"
+            f"{output}\n\n{get_iran_time()}\n🌥️ @ir_tehran_weather"
         )
         return message
     else:
@@ -63,7 +98,7 @@ async def send_weather():
 def main():
     scheduler = AsyncIOScheduler()
 
-    scheduler.add_job(send_weather, "interval", seconds=3600)
+    scheduler.add_job(send_weather, "interval", seconds=7200)
     scheduler.start()
 
     try:
